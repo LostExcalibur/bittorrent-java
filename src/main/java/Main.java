@@ -60,7 +60,7 @@ public class Main {
 				}
 			} while (true);
 		} else {
-			throw new RuntimeException("Only strings and integers are supported at the moment");
+			throw new RuntimeException("Only strings, integers and lists are supported at the moment");
 		}
 	}
 	
