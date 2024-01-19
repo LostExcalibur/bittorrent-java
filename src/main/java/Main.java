@@ -1,9 +1,9 @@
 import com.google.gson.Gson;
-import org.javatuples.Pair;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
+import java.io.DataInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Map;
 // import com.dampcake.bencode.Bencode;
 
@@ -11,78 +11,70 @@ public class Main {
 	private static final Gson gson = new Gson();
 
 	public static void main(String[] args) throws Exception {
+		if (args.length < 1) {
+			System.err.println("""
+					Available commands :
+						decode <bencoded string>
+						info <torrent file>
+					""");
+			return;
+		}
 		String command = args[0];
-		if("decode".equals(command)) {
-			String bencodedValue = args[1];
-			Object decoded;
-			try {
-				decoded = decodeBencode(bencodedValue).getValue0();
-			} catch(RuntimeException e) {
-				System.out.println(e.getMessage());
-				return;
-			}
-			System.out.println(gson.toJson(decoded));
+		BencodeDecoder decoder;
+		switch (command) {
+			case "decode": {
+				if (args.length < 2) {
+					System.err.println("Usage: decode <bencoded string>");
+					return;
+				}
 
-		} else {
-			System.out.println("Unknown command: " + command);
+				String bencodedValue = args[1];
+				decoder = new BencodeDecoder(bencodedValue);
+				Object decoded;
+				try {
+					decoded = decoder.parse();
+				} catch (RuntimeException e) {
+					System.err.println(e.getMessage());
+					return;
+				}
+				System.out.println(gson.toJson(decoded));
+				break;
+			}
+			case "info": {
+				if (args.length < 2) {
+					System.err.println("Usage: info <torrent file>");
+					return;
+				}
+				String filename = args[1];
+				byte[] info = readFile(filename);
+				decoder = new BencodeDecoder(info);
+
+				Map<String, Object> parsed = (Map<String, Object>) decoder.parse();
+				String url = (String) parsed.get("announce");
+				Map<String, Object> infoDict = (Map<String, Object>) parsed.get("info");
+				Long length = (Long) infoDict.get("length");
+				System.out.printf("Tracker URL: %s\nLength: %d", url, length);
+				break;
+			}
+			default: {
+				System.err.println("Unknown command: " + command);
+			}
 		}
 
 	}
 
-	static Pair<Object, String> decodeBencode(String bencodedString) {
-		// Strings
-		if (Character.isDigit(bencodedString.charAt(0))) {
-			int firstColonIndex = 0;
-			for(int i = 0; i < bencodedString.length(); i++) { 
-				if(bencodedString.charAt(i) == ':') {
-					firstColonIndex = i;
-					break;
-				}
+	static byte[] readFile(String filename) throws IOException {
+		DataInputStream reader = new DataInputStream(new FileInputStream(filename));
+		int nBytesToRead = reader.available();
+		byte[] result;
+		if(nBytesToRead > 0) {
+			result = new byte[nBytesToRead];
+			if (reader.read(result) != nBytesToRead) {
+				System.err.println("Could not read entire file " + filename);
 			}
-			int length = Integer.parseInt(bencodedString.substring(0, firstColonIndex));
-			return Pair.with(bencodedString.substring(firstColonIndex+1, firstColonIndex+1+length), bencodedString.substring(firstColonIndex + 1 + length));
-
-		// Integers
-		} else if (bencodedString.charAt(0) == 'i') {
-			int endIndex = bencodedString.indexOf('e');
-
-			return Pair.with(Long.parseLong(bencodedString.substring(1, endIndex)), bencodedString.substring(endIndex + 1));
-
-		// Lists
-		} else if (bencodedString.charAt(0) == 'l') {
-			List<Object> result = new ArrayList<>();
-			String remaining = bencodedString.substring(1);
-			do {
-				Pair<Object, String> parsed = decodeBencode(remaining);
-				remaining = parsed.getValue1();
-
-				result.add(parsed.getValue0());
-
-				if (remaining.charAt(0) == 'e') {
-					return Pair.with(result, remaining.substring(1));
-				}
-			} while (true);
-
-		// Dictionaries
-		} else if (bencodedString.charAt(0) == 'd') {
-			Map<String, Object> result = new HashMap<>();
-			String remaining = bencodedString.substring(1);
-			do {
-				Pair<Object, String> parsedKey = decodeBencode(remaining);
-				remaining = parsedKey.getValue1();
-				Pair<Object, String> parsedValue = decodeBencode(remaining);
-				remaining = parsedValue.getValue1();
-
-				result.put((String) parsedKey.getValue0(), parsedValue.getValue0());
-
-				if (remaining.charAt(0) == 'e') {
-					return Pair.with(result, remaining.substring(1));
-				}
-			} while (true);
-
 		} else {
-			throw new RuntimeException("Wrong bencode format");
+			throw new RuntimeException("Cannot read the file " + filename);
 		}
+		return result;
 	}
-	
 }
