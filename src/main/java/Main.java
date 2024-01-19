@@ -2,7 +2,9 @@ import com.google.gson.Gson;
 import org.javatuples.Pair;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 // import com.dampcake.bencode.Bencode;
 
 public class Main {
@@ -46,21 +48,40 @@ public class Main {
 
 			return Pair.with(Long.parseLong(bencodedString.substring(1, endIndex)), bencodedString.substring(endIndex + 1));
 
-			// Lists
+		// Lists
 		} else if (bencodedString.charAt(0) == 'l') {
 			List<Object> result = new ArrayList<>();
 			String remaining = bencodedString.substring(1);
 			do {
 				Pair<Object, String> parsed = decodeBencode(remaining);
-				result.add(parsed.getValue0());
 				remaining = parsed.getValue1();
+
+				result.add(parsed.getValue0());
 
 				if (remaining.charAt(0) == 'e') {
 					return Pair.with(result, remaining.substring(1));
 				}
 			} while (true);
+
+		// Dictionaries
+		} else if (bencodedString.charAt(0) == 'd') {
+			Map<String, Object> result = new HashMap<>();
+			String remaining = bencodedString.substring(1);
+			do {
+				Pair<Object, String> parsedKey = decodeBencode(remaining);
+				remaining = parsedKey.getValue1();
+				Pair<Object, String> parsedValue = decodeBencode(remaining);
+				remaining = parsedValue.getValue1();
+
+				result.put((String) parsedKey.getValue0(), parsedValue.getValue0());
+
+				if (remaining.charAt(0) == 'e') {
+					return Pair.with(result, remaining.substring(1));
+				}
+			} while (true);
+
 		} else {
-			throw new RuntimeException("Only strings, integers and lists are supported at the moment");
+			throw new RuntimeException("Wrong bencode format");
 		}
 	}
 	
