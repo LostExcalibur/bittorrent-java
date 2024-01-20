@@ -14,6 +14,7 @@ public class Main {
 					Available commands :
 						decode <bencoded string>
 						info <torrent file>
+						peers <torrent file>
 					""");
 			return;
 		}
@@ -40,6 +41,18 @@ public class Main {
 				}
 				String filename = args[1];
 				TorrentFile torrent = new TorrentFile(filename);
+				torrent.printInfo();
+				break;
+			}
+			case "peers": {
+				if (args.length < 2) {
+					System.err.println("Usage: peers <torrent file>");
+					return;
+				}
+				String filename = args[1];
+				TorrentFile torrent = new TorrentFile(filename);
+				torrent.discoverPeers();
+				torrent.printPeers();
 				break;
 			}
 			default: {
