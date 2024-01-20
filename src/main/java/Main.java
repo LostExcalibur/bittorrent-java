@@ -1,5 +1,6 @@
 import com.google.gson.Gson;
 
+import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 // import com.dampcake.bencode.Bencode;
@@ -53,6 +54,23 @@ public class Main {
 				TorrentFile torrent = new TorrentFile(filename);
 				torrent.discoverPeers();
 				torrent.printPeers();
+				break;
+			}
+			case "handshake": {
+				if (args.length < 3) {
+					System.err.println("Usage: handshake <torrent file> <ip>:<port>");
+					return;
+				}
+				String filename = args[1];
+				TorrentFile torrent = new TorrentFile(filename);
+//				torrent.discoverPeers();
+				String peerAddress = args[2];
+				String[] split = peerAddress.split(":");
+				if (split.length != 2) {
+					throw new RuntimeException("Wrong peer format, should be <ip>:<port>");
+				}
+				InetSocketAddress peer = new InetSocketAddress(split[0], Integer.parseInt(split[1]));
+				torrent.handshake(peer);
 				break;
 			}
 			default: {

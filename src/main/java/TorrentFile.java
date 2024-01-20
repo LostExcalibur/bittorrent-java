@@ -4,18 +4,14 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.URLEncoder;
+import java.io.*;
+import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -73,6 +69,35 @@ public class TorrentFile {
 		}
 
 		return sb.toString();
+	}
+
+	public void handshake(InetSocketAddress peer) throws IOException {
+		Socket socket = new Socket();
+		socket.connect(peer);
+
+		byte[] reserved = new byte[8]; // Should be all 0
+		OutputStream outputStream = socket.getOutputStream();
+		outputStream.write(19);
+		outputStream.write("BitTorrent protocol".getBytes());
+		outputStream.write(reserved);
+		outputStream.write(infoHash);
+		outputStream.write("00112233445566778899".getBytes());
+
+		InputStream inputStream = socket.getInputStream();
+		int length = inputStream.read();
+		assert length == 19;
+
+		String protocol = new String(inputStream.readNBytes(length));
+		assert protocol.equals("BitTorrent protocol");
+
+		inputStream.readNBytes(8); // Reserved, should be 0
+		byte[] peerInfoHash = inputStream.readNBytes(20);
+		assert Arrays.equals(peerInfoHash, infoHash);
+
+		byte[] peerID = inputStream.readNBytes(20);
+		System.out.println("Peer ID: " + hexString(peerID));
+
+		socket.close();
 	}
 
 	public void discoverPeers() {
