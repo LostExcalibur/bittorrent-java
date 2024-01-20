@@ -1,14 +1,16 @@
 import com.google.gson.Gson;
+import org.apache.commons.codec.digest.DigestUtils;
 
-import java.io.DataInputStream;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.util.Arrays;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Map;
 // import com.dampcake.bencode.Bencode;
 
 public class Main {
 	private static final Gson gson = new Gson();
+	private static final Charset charset = StandardCharsets.UTF_8;
 
 	public static void main(String[] args) throws Exception {
 		if (args.length < 1) {
@@ -29,14 +31,9 @@ public class Main {
 				}
 
 				String bencodedValue = args[1];
-				decoder = new BencodeDecoder(bencodedValue);
-				Object decoded;
-				try {
-					decoded = decoder.parse();
-				} catch (RuntimeException e) {
-					System.err.println(e.getMessage());
-					return;
-				}
+				decoder = new BencodeDecoder(bencodedValue, charset);
+
+				Object decoded = decoder.parse();
 				System.out.println(gson.toJson(decoded));
 				break;
 			}
@@ -46,14 +43,21 @@ public class Main {
 					return;
 				}
 				String filename = args[1];
-				byte[] info = readFile(filename);
-				decoder = new BencodeDecoder(info);
+				byte[] fileBytes = Files.readAllBytes(Paths.get(filename));
 
-				Map<String, Object> parsed = (Map<String, Object>) decoder.parse();
-				String url = (String) parsed.get("announce");
-				Map<String, Object> infoDict = (Map<String, Object>) parsed.get("info");
+				decoder = new BencodeDecoder(fileBytes, true);
+				Map<String, Object> fileData = (Map<String, Object>) decoder.parse();
+				Map<String, Object> infoDict = (Map<String, Object>) fileData.get("info");
+
+				BencodeEncoder encoder = new BencodeEncoder(charset);
+				encoder.encodeObject(infoDict);
+				byte[] testDecoded = encoder.getResult();
+
+				String url = new String((byte[]) fileData.get("announce"));
 				Long length = (Long) infoDict.get("length");
-				System.out.printf("Tracker URL: %s\nLength: %d", url, length);
+				String infoHash = DigestUtils.sha1Hex(testDecoded);
+
+				System.out.printf("Tracker URL: %s\nLength: %d\nInfo Hash: %s", url, length, infoHash);
 				break;
 			}
 			default: {
@@ -61,20 +65,5 @@ public class Main {
 			}
 		}
 
-	}
-
-	static byte[] readFile(String filename) throws IOException {
-		DataInputStream reader = new DataInputStream(new FileInputStream(filename));
-		int nBytesToRead = reader.available();
-		byte[] result;
-		if(nBytesToRead > 0) {
-			result = new byte[nBytesToRead];
-			if (reader.read(result) != nBytesToRead) {
-				System.err.println("Could not read entire file " + filename);
-			}
-		} else {
-			throw new RuntimeException("Cannot read the file " + filename);
-		}
-		return result;
 	}
 }
