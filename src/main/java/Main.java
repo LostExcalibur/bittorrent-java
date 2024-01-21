@@ -3,6 +3,8 @@ import com.google.gson.Gson;
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 // import com.dampcake.bencode.Bencode;
 
 public class Main {
@@ -71,6 +73,25 @@ public class Main {
 				}
 				InetSocketAddress peer = new InetSocketAddress(split[0], Integer.parseInt(split[1]));
 				torrent.handshake(peer);
+				break;
+			}
+			case "download_piece": {
+				if (args.length < 5) {
+					System.err.println("Usage: download_piece -o <output file> <torrent file> <piece id>");
+					return;
+				}
+
+				String outputFile = args[2];
+				String torrentFile = args[3];
+				int pieceID = Integer.parseInt(args[4]);
+
+				TorrentFile torrent = new TorrentFile(torrentFile);
+				torrent.discoverPeers();
+				byte[] piece = torrent.downloadPiece(pieceID);
+
+				Files.write(Paths.get(outputFile), piece);
+				System.out.printf("Piece %d downloaded to %s.\n", pieceID, outputFile);
+
 				break;
 			}
 			default: {

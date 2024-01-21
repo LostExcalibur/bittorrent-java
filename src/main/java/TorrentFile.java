@@ -17,11 +17,12 @@ import java.util.Map;
 
 public class TorrentFile {
 	private final String url;
-	private final Long length;
-	private final Long pieceLength;
+	private final long length;
+	private final long pieceLength;
 	private final List<byte[]> piecesList;
 	private final byte[] infoHash;
 	private long interval = -1;
+	private Socket socket;
 	private List<InetSocketAddress> peers;
 
 	public TorrentFile(String filename) throws IOException {
@@ -72,7 +73,8 @@ public class TorrentFile {
 	}
 
 	public void handshake(InetSocketAddress peer) throws IOException {
-		Socket socket = new Socket();
+		assert socket == null;
+		socket = new Socket();
 		socket.connect(peer);
 
 		byte[] reserved = new byte[8]; // Should be all 0
@@ -96,8 +98,72 @@ public class TorrentFile {
 
 		byte[] peerID = inputStream.readNBytes(20);
 		System.out.println("Peer ID: " + hexString(peerID));
+	}
 
-		socket.close();
+	public byte[] downloadPiece(int pieceID) throws IOException {
+		if (socket == null) {
+			handshake(peers.getFirst());
+		}
+		PeerMessage bitfield = new PeerMessage(socket.getInputStream());
+		assert bitfield.type == PeerMessage.MessageType.BITFIELD;
+		System.out.println("Received bitfield");
+
+		byte[] empty = new byte[0];
+		PeerMessage interested = new PeerMessage(PeerMessage.MessageType.INTERESTED, empty);
+		interested.sendTo(socket.getOutputStream());
+		System.out.println("Sent interested");
+
+		PeerMessage unchoke = new PeerMessage(socket.getInputStream());
+		assert unchoke.type == PeerMessage.MessageType.UNCHOKE;
+		System.out.println("Received unchoke");
+
+		int blockSize = 16 * 1024;
+		int blockCount = (int) (pieceLength / blockSize);
+		if (blockCount == 0) {
+			blockCount ++;
+		}
+		int remaining = (int) pieceLength;
+		ByteBuffer pieceData = ByteBuffer.allocate(remaining);
+
+		for (int i = 0; i < blockCount; i++) {
+			// The last block might have smaller size if blocksize does not divide pieceLength
+			int length = blockSize;
+			if (remaining >= blockSize) {
+				remaining -= blockSize;
+			} else {
+				length = remaining;
+			}
+
+			ByteBuffer buffer = ByteBuffer.allocate(12);
+			buffer.putInt(pieceID);
+			buffer.putInt(i * blockSize);
+			buffer.putInt(length);
+
+			PeerMessage request = new PeerMessage(PeerMessage.MessageType.REQUEST, buffer.array());
+			request.sendTo(socket.getOutputStream());
+			System.out.println("Sent request");
+
+			PeerMessage piece = new PeerMessage(socket.getInputStream());
+			assert piece.type == PeerMessage.MessageType.PIECE;
+			System.out.println("Received piece");
+
+			ByteBuffer readBuffer = ByteBuffer.wrap(piece.data);
+			int peerPieceID = readBuffer.getInt();
+			int peerStartPos = readBuffer.getInt();
+			if (peerPieceID != pieceID || peerStartPos != i * blockSize) {
+				System.err.println("Peer sent wrong data, aborting");
+				return null;
+			}
+
+			pieceData.put(readBuffer);
+		}
+
+		if (!Arrays.equals(DigestUtils.sha1(pieceData.array().clone()), piecesList.get(pieceID))) {
+			System.err.println("Peer sent wrong data, aborting");
+			return null;
+		}
+
+		return pieceData.array();
 	}
 
 	public void discoverPeers() {
@@ -107,7 +173,7 @@ public class TorrentFile {
 				+ "&port=" + "6881"
 				+ "&uploaded=" + "0"
 				+ "&downloaded=" + "0"
-				+ "&left=" + length.toString()
+				+ "&left=" + Long.toString(length)
 				+ "&compact=" + "1";
 		HttpGet getRequest = new HttpGet(fullUrl);
 		CloseableHttpClient client = HttpClients.createDefault();
