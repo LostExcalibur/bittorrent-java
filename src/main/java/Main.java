@@ -94,6 +94,24 @@ public class Main {
 
 				break;
 			}
+			case "download": {
+				if (args.length < 4) {
+					System.err.println("Usage: download -o <output file> <torrent file>");
+					return;
+				}
+				String outputFile = args[2];
+				String torrentFile = args[3];
+
+				TorrentFile torrent = new TorrentFile(torrentFile);
+				torrent.discoverPeers();
+				byte[] fileData;
+				if ((fileData = torrent.downloadFile()) != null) {
+					Files.write(Paths.get(outputFile), fileData);
+					System.out.printf("Downloaded %s to %s\n", torrentFile, outputFile);
+				}
+
+				break;
+			}
 			default: {
 				System.err.println("Unknown command: " + command);
 			}

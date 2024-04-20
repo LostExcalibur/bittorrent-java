@@ -4,8 +4,14 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 
-import java.io.*;
-import java.net.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -73,7 +79,7 @@ public class TorrentFile {
 	}
 
 	public void handshake(InetSocketAddress peer) throws IOException {
-		assert socket == null;
+		assert socket == null || socket.isClosed();
 		socket = new Socket();
 		socket.connect(peer);
 
@@ -101,12 +107,14 @@ public class TorrentFile {
 	}
 
 	public byte[] downloadPiece(int pieceID) throws IOException {
-		if (socket == null) {
-			handshake(peers.getFirst());
+		if (socket == null || socket.isClosed()) {
+			System.out.println("Socket not initialized, handshaking first");
+			handshake(peers.get(pieceID % peers.size()));
 		}
 		PeerMessage bitfield = new PeerMessage(socket.getInputStream());
 		assert bitfield.type == PeerMessage.MessageType.BITFIELD;
 		System.out.println("Received bitfield");
+//		System.out.println(Integer.toString(bitfield.data[0] & 0xff, 2));
 
 		byte[] empty = new byte[0];
 		PeerMessage interested = new PeerMessage(PeerMessage.MessageType.INTERESTED, empty);
@@ -118,11 +126,13 @@ public class TorrentFile {
 		System.out.println("Received unchoke");
 
 		int blockSize = 16 * 1024;
-		int blockCount = (int) (pieceLength / blockSize);
+		long thisPieceLength = pieceID == piecesList.size() - 1 ? length % pieceLength : pieceLength;
+		int blockCount = (int) (thisPieceLength / blockSize);
 		if (blockCount == 0) {
-			blockCount ++;
+			blockCount++;
 		}
-		int remaining = (int) pieceLength;
+		System.out.printf("Length : %d, pieceLength : %d, blocksize: %d\n", length, thisPieceLength, blockSize);
+		int remaining = (int) thisPieceLength;
 		ByteBuffer pieceData = ByteBuffer.allocate(remaining);
 
 		for (int i = 0; i < blockCount; i++) {
@@ -134,6 +144,8 @@ public class TorrentFile {
 				length = remaining;
 			}
 
+			System.out.printf("Asking for %d bytes\n", length);
+
 			ByteBuffer buffer = ByteBuffer.allocate(12);
 			buffer.putInt(pieceID);
 			buffer.putInt(i * blockSize);
@@ -144,26 +156,49 @@ public class TorrentFile {
 			System.out.println("Sent request");
 
 			PeerMessage piece = new PeerMessage(socket.getInputStream());
-			assert piece.type == PeerMessage.MessageType.PIECE;
-			System.out.println("Received piece");
+			if (piece.type == PeerMessage.MessageType.PIECE) {
+				System.out.println("Received piece");
+			}
 
 			ByteBuffer readBuffer = ByteBuffer.wrap(piece.data);
 			int peerPieceID = readBuffer.getInt();
 			int peerStartPos = readBuffer.getInt();
 			if (peerPieceID != pieceID || peerStartPos != i * blockSize) {
+				System.err.println("Mauvaise id ou position de départ");
 				System.err.println("Peer sent wrong data, aborting");
+				socket.close();
 				return null;
 			}
 
 			pieceData.put(readBuffer);
 		}
 
-		if (!Arrays.equals(DigestUtils.sha1(pieceData.array().clone()), piecesList.get(pieceID))) {
+		byte[] array = pieceData.array().clone();
+		System.out.printf("Asked for piece length of %d, got %d\n", thisPieceLength, array.length);
+		if (!Arrays.equals(DigestUtils.sha1(array), piecesList.get(pieceID))) {
+			System.err.println("Mauvais hash");
 			System.err.println("Peer sent wrong data, aborting");
+			socket.close();
 			return null;
 		}
 
 		return pieceData.array();
+	}
+
+
+	public byte[] downloadFile() throws IOException {
+		ByteBuffer buffer = ByteBuffer.allocate((int) length);
+		for (int pieceID = 0; pieceID < piecesList.size(); pieceID++) {
+			byte [] piece = downloadPiece(pieceID);
+			if (piece == null) {
+				return null;
+			}
+			buffer.put(piece);
+			System.out.printf("Downloaded piece %d out of %d\n", pieceID, piecesList.size());
+			socket.close();
+		}
+
+		return buffer.array();
 	}
 
 	public void discoverPeers() {

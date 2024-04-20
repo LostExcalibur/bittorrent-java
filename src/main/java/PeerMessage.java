@@ -2,6 +2,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 public class PeerMessage {
 	MessageType type;
@@ -9,7 +10,13 @@ public class PeerMessage {
 	byte[] data = null;
 
 	public PeerMessage(InputStream stream) throws IOException {
-		int size = ByteBuffer.wrap(stream.readNBytes(4)).getInt();
+		byte[] array = stream.readNBytes(4);
+		while (array.length == 0) {
+			// Keepalive (sure ?), ignore and go to the next
+			array = stream.readNBytes(4);
+		}
+		int size = ByteBuffer.wrap(array).getInt();
+//		System.out.println(size);
 		type = MessageType.fromInt(stream.read());
 		if (size > 1) {
 			data = stream.readNBytes(size - 1);
